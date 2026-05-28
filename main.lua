@@ -7,6 +7,11 @@ This plugin lets you send highlighted text to Discord using Webhooks.
 local WidgetContainer = require("ui/widget/container/widgetcontainer")
 local util = require("util")
 local _ = require("gettext")
+local http = require("socket.http")
+local ltn12 = require("ltn12")
+local JSON = require("json")
+
+local WEBHOOK_URL = "URL-HERE" -- TODO: Move to settings instead of var
 
 local SendToDiscord = WidgetContainer:extend{
     name = "sendtodiscord"
@@ -16,6 +21,23 @@ function SendToDiscord:init()
     if self.document then
         self:addToHighlightDialog()
     end
+end
+
+function SendToDiscord:send(text)
+    local data = JSON.encode({
+        content = text
+    })
+
+    local result, code = http.request {
+        method = "POST",
+        url = WEBHOOK_URL,
+        headers = {
+            ["Content-Type"] = "application/json",
+            ["Content-Length"] = #data
+        },
+        source = ltn12.source.string(data),
+        sink = nil
+    }
 end
 
 function SendToDiscord:addToHighlightDialog()
@@ -30,7 +52,9 @@ function SendToDiscord:addToHighlightDialog()
                     return end
 
                 local text = util.cleanupSelectedText(this.selected_text.text)
-                -- LOGIC HERE!! (TODO: Make a seperate func)
+                
+                self:send(text)
+                
                 this:onClose(true)
             end,
         }
