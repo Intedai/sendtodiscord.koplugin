@@ -12,6 +12,7 @@ This plugin lets you send highlighted text to Discord using Webhooks.
 -- Utilize footer and other embed fields that I didn't use
 -- If embed enabled have a color settings
 
+local Device = require("device")
 local WidgetContainer = require("ui/widget/container/widgetcontainer")
 local util = require("util")
 local _ = require("gettext")
@@ -31,6 +32,9 @@ local SendToDiscord = WidgetContainer:extend{
 function SendToDiscord:init()
     if self.document then
         self:addToHighlightDialog()
+    end
+    if Device:hasClipboard() then
+        self.ui.menu:registerToMainMenu(self)
     end
 end
 
@@ -99,6 +103,15 @@ function SendToDiscord:addToHighlightDialog()
             end,
         }
     end)
+end
+
+function SendToDiscord:addToMainMenu(menu_items)
+    menu_items.sendtodiscord = {
+        text = _("Send clipboard to Discord"),
+        callback = function()
+            self:send(Device.input.getClipboardText())
+        end,
+    }
 end
 
 return SendToDiscord
