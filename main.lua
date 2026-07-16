@@ -5,16 +5,16 @@ This plugin lets you send highlighted text to Discord using Webhooks.
 --]]--
 
 -- TODOS:
--- Put discrod webhook url in settings (and maybe config file that will override settings) instead of var
--- Add a switch in settings to put an embed or not
--- Add an option to have the text enclosed in ```, also add a format textbox, for example: Explain this: %TEXT%
+-- Put discord webhook url in settings (and maybe config file that will override settings) instead of var
+-- Add an option to have the text enclosed in ```
+-- Add prefix and suffix in options
+-- Add color option
 -- Use util.trim when needed, if ``` is used dont trim, in embeds without ``` trim and remove multiple spaces
--- Utilize footer and other embed fields that I didn't use
--- If embed enabled have a color settings
 
 local Device = require("device")
 local WidgetContainer = require("ui/widget/container/widgetcontainer")
 local util = require("util")
+local plugin_utils = require("plugin_utils")
 local _ = require("gettext")
 local http = require("socket.http")
 local ltn12 = require("ltn12")
@@ -47,13 +47,19 @@ function SendToDiscord:warn(text)
     })
 end
 
-function SendToDiscord:send(text)
+function SendToDiscord:send(authors, title, text, footer_text)
     local data = JSON.encode({
         embeds = {
             {
-                title = "sendtodiscord.koplugin", -- TODO: put in settings with: %BOOK_NAME% and %AUTHOR% %PAGE% and everything.
+                author = {
+                    name = authors
+                },
+                title = title,
                 color = 128, -- Lua color
-                description = text
+                description = text,
+                footer = {
+                    text = footer_text
+                }
             }
         }
     })
@@ -70,7 +76,7 @@ function SendToDiscord:send(text)
         sink = ltn12.sink.table(response)
     }
     if result ~= 1 then
-        self:warn(_("Failed to send request:") .. " " .. _(code)) -- Code is in english if result ~= 1, perhaps just show in english instead of adding translations
+        self:warn(_("Failed to send request:") .. " " .. code)
     elseif code == 204 or code == 200 then
         -- TODO: If text is more than 4096 characters loop until u send all of it
         logger.info(_("Sent highlighted text to Discord successfuly,"))
@@ -78,9 +84,17 @@ function SendToDiscord:send(text)
         --TODO: Implement resend in time sent in response
         local response = table.concat(response)
         print(response)
-        logger.warn("You are being rate limited, trying again in X seconds") -- TODO: add timeout to warn function when implementing this, timeout is optional
+        logger.warn(_("You are being rate limited, trying again in") .. "X" .. " " .. _("seconds")) -- TODO: add timeout to warn function when implementing this, timeout is optional
     else
         self:warn(_("Failed,") .. " " .. _("HTTP status code:") .. " " .. code)
+    end
+end
+
+function  SendToDiscord:getPercentProgress()
+    if self.ui.document.info.has_pages then
+        return plugin_utils:myRoundPercent(self.ui.paging:getLastPercent())
+    else
+        return plugin_utils:myRoundPercent(self.ui.rolling:getLastPercent())
     end
 end
 
@@ -94,10 +108,28 @@ function SendToDiscord:addToHighlightDialog()
                 this:highlightFromHoldPos()
                 if not (this.selected_text and this.selected_text.text) then
                     return end
+                
+                local doc_metadata = self.document:getProps()
 
                 local text = util.cleanupSelectedText(this.selected_text.text)
+                local book_title = doc_metadata.title or _("Unknown Title")
+                local book_author = plugin_utils:linesToSingleLine(doc_metadata.authors or _("Unknown Author"))
                 
-                self:send(text)
+                local curr_page = self.ui:getCurrentPage()
+                local total_pages = self.ui.document:getPageCount()
+                
+                local page_progress = nil
+
+                if curr_page ~= nil and total_pages ~= nil then
+                    page_progress = curr_page .. " / " .. total_pages
+                end
+                
+                local percent_progress = self:getPercentProgress() .. "%"
+
+                -- If page_progress is nill only show percent_progress
+                local footer = percent_progress and page_progress .. "  •  " .. percent_progress
+
+                self:send(book_author, book_title, text, footer)
                 
                 this:onClose(true)
             end,
@@ -106,10 +138,15 @@ function SendToDiscord:addToHighlightDialog()
 end
 
 function SendToDiscord:addToMainMenu(menu_items)
-    menu_items.sendtodiscord = {
+    menu_items.send_clipboard_to_discord = {
         text = _("Send clipboard to Discord"),
         callback = function()
-            self:send(Device.input.getClipboardText())
+            local clipboard_text = util.cleanupSelectedText(Device.input.getClipboardText())
+            if clipboard_text == nil or clipboard_text == "" then
+                self:warn(_("Clipboard is empty, did not send anything to Discord"))
+            else
+                self:send("KOReader", _("Clipboard"), clipboard_text, _("Last copied text"))
+            end
         end,
     }
 end
