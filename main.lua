@@ -5,7 +5,6 @@ This plugin lets you send highlighted text to Discord using Webhooks.
 --]]--
 
 -- TODOS:
--- Add prefix and suffix in options
 -- Add color option
 -- Use util.trim when needed, if ``` is used dont trim, in embeds without ``` trim and remove multiple spaces
 
@@ -40,7 +39,10 @@ function SendToDiscord:init()
     self.ui.menu:registerToMainMenu(self)
 
     self.settings = LuaSettings:open(("%s/%s"):format(DataStorage:getSettingsDir(), self.settings_file))
+
     self.settings:readSetting("webhook_url", "")
+    self.settings:readSetting("prefix_text", "")
+    self.settings:readSetting("suffix_text", "")
 end
 
 function SendToDiscord:warn(text)
@@ -118,7 +120,7 @@ function SendToDiscord:addToHighlightDialog()
                 
                 local wrap_code_block = self.settings:isTrue("wrap_code_block")
                 
-                local text = this.selected_text.text
+                local text = self.settings:readSetting("prefix_text") .. this.selected_text.text .. self.settings:readSetting("suffix_text")
                 if wrap_code_block then
                     text = "```" .. text .. "```"
                 else
@@ -150,6 +152,44 @@ function SendToDiscord:addToHighlightDialog()
     end)
 end
 
+function SendToDiscord:settingInputTable(setting, setting_title, dialog_description)
+    return {
+        text_func = function()
+            return T("%1: %2", setting_title, self.settings:readSetting(setting))
+        end,
+        callback = function(touchmenu_instance)            
+            self.curr_dialog = InputDialog:new{
+                title = setting_title,
+                description = dialog_description,
+                input = self.settings:readSetting(setting),
+                buttons = {{
+                    {
+                        text = _("Cancel"),
+                        callback = function()
+                            UIManager:close(self.curr_dialog)
+                        end
+                    },
+                    {
+                        text = _("Save"),
+                        callback = function()
+                            local input_text = self.curr_dialog:getInputText()
+                            self.settings:saveSetting(setting, input_text)
+                            self.settings:flush()
+                            UIManager:close(self.curr_dialog)
+                            if touchmenu_instance then
+                                touchmenu_instance:updateItems()
+                            end
+                        end
+                    }
+                }}
+            }
+        
+            UIManager:show(self.curr_dialog)
+            self.curr_dialog:onShowKeyboard()
+        end
+    }
+end
+
 function SendToDiscord:addToMainMenu(menu_items)
     menu_items.sendtodiscord = {
         text = _("SendToDiscord"),
@@ -170,42 +210,21 @@ function SendToDiscord:addToMainMenu(menu_items)
             {
                 text = _("Settings"),
                 sub_item_table = {
-                    {
-                        text_func =  function()
-                            return T(_("Webhook URL: %1"), self.settings:readSetting("webhook_url"))
-                        end,
-                        callback = function(touchmenu_instance)
-                            self.webhook_dialog = InputDialog:new{
-                                title = _("Webhook URL"),
-                                description = _("Enter your webhook url:"),
-                                input = self.settings:readSetting("webhook_url"),
-                                buttons = {{
-                                    {
-                                        text = _("Cancel"),
-                                        callback = function()
-                                            UIManager:close(self.webhook_dialog)
-                                        end
-                                    },
-                                    {
-                                        text = _("Save"),
-                                        callback = function()
-                                            local new_webhook = self.webhook_dialog:getInputText()
-                                            self.settings:saveSetting("webhook_url", new_webhook)
-                                            self.settings:flush()
-                                            UIManager:close(self.webhook_dialog)
-                                            if touchmenu_instance then
-                                                touchmenu_instance:updateItems()
-                                            end
-                                        end
-                                    }
-                                }}
-                            }
-
-                            UIManager:show(self.webhook_dialog)
-                            self.webhook_dialog:onShowKeyboard()
-
-                        end
-                    },
+                    self:settingInputTable(
+                        "webhook_url",
+                        _("Webhook URL"),
+                        _("Enter your webhook url:")
+                    ),
+                    self:settingInputTable(
+                        "prefix_text",
+                        _("Prefix Text"),
+                        _("Enter text that will be added before the copied text:")
+                    ),
+                    self:settingInputTable(
+                        "suffix_text",
+                        _("Suffix Text"),
+                        _("Enter text that will be added after the copied text:")
+                    ),
                     {
                         text = _("Wrap text in code block (whitespaces stay the exact same)"),
                         checked_func = function()
