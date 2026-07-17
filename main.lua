@@ -14,7 +14,7 @@ This plugin lets you send highlighted text to Discord using Webhooks.
 local Device = require("device")
 local WidgetContainer = require("ui/widget/container/widgetcontainer")
 local util = require("util")
-local plugin_utils = require("plugin_utils")
+local PluginUtil = require("pluginutil")
 local _ = require("gettext")
 local http = require("socket.http")
 local ltn12 = require("ltn12")
@@ -24,6 +24,9 @@ local UIManager = require("ui/uimanager")
 local InfoMessage = require("ui/widget/infomessage")
 local LuaSettings = require("luasettings")
 local DataStorage = require("datastorage")
+local ffiUtil = require("ffi/util")
+
+local T = ffiUtil.template
 
 local WEBHOOK_URL = "URL-HERE"
 
@@ -80,25 +83,25 @@ function SendToDiscord:send(authors, title, text, footer_text)
         sink = ltn12.sink.table(response)
     }
     if result ~= 1 then
-        self:warn(_("Failed to send request:") .. " " .. code)
+        self:warn(T(_("Failed to send request: %1"), code))
     elseif code == 204 or code == 200 then
         -- TODO: If text is more than 4096 characters loop until u send all of it
-        logger.info(_("Sent highlighted text to Discord successfuly,"))
+        logger.info(_("Sent highlighted text to Discord successfuly"))
     elseif code == 429 then
         --TODO: Implement resend in time sent in response
         local response = table.concat(response)
         print(response)
-        logger.warn(_("You are being rate limited, trying again in") .. "X" .. " " .. _("seconds")) -- TODO: add timeout to warn function when implementing this, timeout is optional
+        logger.warn(T(_("You are being rate limited, trying again in %1 seconds"), "X")) -- TODO: add timeout to warn function when implementing this, timeout is optional
     else
-        self:warn(_("Failed,") .. " " .. _("HTTP status code:") .. " " .. code)
+        self:warn(T(_("Failed, HTTP status code: %1"), code))
     end
 end
 
 function  SendToDiscord:getPercentProgress()
     if self.ui.document.info.has_pages then
-        return plugin_utils:myRoundPercent(self.ui.paging:getLastPercent())
+        return PluginUtil:myRoundPercent(self.ui.paging:getLastPercent())
     else
-        return plugin_utils:myRoundPercent(self.ui.rolling:getLastPercent())
+        return PluginUtil:myRoundPercent(self.ui.rolling:getLastPercent())
     end
 end
 
@@ -126,7 +129,7 @@ function SendToDiscord:addToHighlightDialog()
 
 
                 local book_title = doc_metadata.title or _("Unknown Title")
-                local book_author = plugin_utils:linesToSingleLine(doc_metadata.authors or _("Unknown Author"))
+                local book_author = PluginUtil:linesToSingleLine(doc_metadata.authors or _("Unknown Author"))
                 
                 local curr_page = self.ui:getCurrentPage()
                 local total_pages = self.ui.document:getPageCount()
@@ -171,6 +174,9 @@ function SendToDiscord:addToMainMenu(menu_items)
                 text = _("Settings"),
                 sub_item_table = {
                     {
+                        text = _("Webhook URL")
+                    },
+                    {
                         text = _("Wrap text in code block (whitespaces stay the exact same)"),
                         checked_func = function()
                             return self.settings:isTrue("wrap_code_block")
@@ -180,6 +186,7 @@ function SendToDiscord:addToMainMenu(menu_items)
                             self.settings:flush()
                         end
                     },
+
                 }
             }
         }
