@@ -22,20 +22,24 @@ local logger = require("logger")
 local JSON = require("json")
 local UIManager = require("ui/uimanager")
 local InfoMessage = require("ui/widget/infomessage")
+local LuaSettings = require("luasettings")
+local DataStorage = require("datastorage")
 
 local WEBHOOK_URL = "URL-HERE"
 
 local SendToDiscord = WidgetContainer:extend{
-    name = "sendtodiscord"
+    name = "sendtodiscord",
+    settings = nil,
+    settings_file = "sendtodiscord_settings.lua"
 } 
 
 function SendToDiscord:init()
     if self.document then
         self:addToHighlightDialog()
     end
-    if Device:hasClipboard() then
-        self.ui.menu:registerToMainMenu(self)
-    end
+    self.ui.menu:registerToMainMenu(self)
+
+    self.settings = LuaSettings:open(("%s/%s"):format(DataStorage:getSettingsDir(), self.settings_file))
 end
 
 function SendToDiscord:warn(text)
@@ -110,8 +114,17 @@ function SendToDiscord:addToHighlightDialog()
                     return end
                 
                 local doc_metadata = self.document:getProps()
+                
+                local wrap_code_block = self.settings:isTrue("wrap_code_block")
+                
+                local text = this.selected_text.text
+                if wrap_code_block then
+                    text = "```" .. text .. "```"
+                else
+                    text = util.cleanupSelectedText(text)
+                end
 
-                local text = util.cleanupSelectedText(this.selected_text.text)
+
                 local book_title = doc_metadata.title or _("Unknown Title")
                 local book_author = plugin_utils:linesToSingleLine(doc_metadata.authors or _("Unknown Author"))
                 
@@ -138,16 +151,38 @@ function SendToDiscord:addToHighlightDialog()
 end
 
 function SendToDiscord:addToMainMenu(menu_items)
-    menu_items.send_clipboard_to_discord = {
-        text = _("Send clipboard to Discord"),
-        callback = function()
-            local clipboard_text = util.cleanupSelectedText(Device.input.getClipboardText())
-            if clipboard_text == nil or clipboard_text == "" then
-                self:warn(_("Clipboard is empty, did not send anything to Discord"))
-            else
-                self:send("KOReader", _("Clipboard"), clipboard_text, _("Last copied text"))
-            end
-        end,
+    menu_items.sendtodiscord = {
+        text = _("SendToDiscord"),
+        sub_item_table = {
+            {
+                text = _("Send clipboard to Discord"),
+                callback = function()
+                    local clipboard_text = util.cleanupSelectedText(Device.input.getClipboardText())
+                    if not Device:hasClipboard() then
+                        self:warn(_("This device does not have a clipboard"))
+                    elseif clipboard_text == nil or clipboard_text == "" then
+                        self:warn(_("Clipboard is empty, did not send anything to Discord"))
+                    else
+                        self:send("KOReader", _("Clipboard"), clipboard_text, _("Last copied text"))
+                    end
+                end,
+            },
+            {
+                text = _("Settings"),
+                sub_item_table = {
+                    {
+                        text = _("Wrap text in code block (whitespaces stay the exact same)"),
+                        checked_func = function()
+                            return self.settings:isTrue("wrap_code_block")
+                        end,
+                        callback = function()
+                            self.settings:toggle("wrap_code_block")
+                            self.settings:flush()
+                        end
+                    },
+                }
+            }
+        }
     }
 end
 
