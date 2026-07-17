@@ -1,5 +1,5 @@
 --[[--
-This plugin lets you send highlighted text to Discord using Webhooks.
+This plugin lets you send highlighted text and text from your clipboard to Discord in beautiful embeds using webhooks.
 
 @module koplugin.SendToDiscord
 --]]--
@@ -234,6 +234,19 @@ function SendToDiscord:settingSpinTable(setting, setting_title, widget_title, mi
     }
 end
 
+function SendToDiscord:settingCheckboxTable(setting, setting_title)
+    return {
+        text = setting_title,
+        checked_func = function()
+            return self.settings:isTrue(setting)
+        end,
+        callback = function()
+            self.settings:toggle(setting)
+            self.settings:flush()
+        end
+    }
+end
+
 function SendToDiscord:addToMainMenu(menu_items)
     menu_items.sendtodiscord = {
         text = _("SendToDiscord"),
@@ -263,22 +276,31 @@ function SendToDiscord:addToMainMenu(menu_items)
                         _("Webhook URL"),
                         _("Enter your webhook url:")
                     ),
-                    self:settingInputTable(
-                        "prefix_text",
-                        _("Prefix Text"),
-                        _("Enter text that will be added before the copied text:")
-                    ),
-                    self:settingInputTable(
-                        "suffix_text",
-                        _("Suffix Text"),
-                        _("Enter text that will be added after the copied text:")
-                    ),
+                    {
+                        text = _("Text Manipulation"),
+                        sub_item_table = {
+                            self:settingInputTable(
+                                "prefix_text",
+                                _("Prefix Text"),
+                                _("Enter text that will be added before the copied text:")
+                            ),
+                            self:settingInputTable(
+                                "suffix_text",
+                                _("Suffix Text"),
+                                _("Enter text that will be added after the copied text:")
+                            ),
+                            self:settingCheckboxTable(
+                                "wrap_code_block",
+                                _("Wrap text in code block (whitespaces stay the exact same)")
+                            )
+                        }
+                    },
                     {
                         text = _("Embed Color"),
                         sub_item_table = {
-                            self:settingSpinTable("red", "R", _("Red value"), 0, 255, self.default_rgb[1]),
-                            self:settingSpinTable("green", "G", _("Green value"), 0, 255, self.default_rgb[2]),
-                            self:settingSpinTable("blue", "B", _("Blue value"), 0, 255, self.default_rgb[3]),
+                            self:settingSpinTable("red", "R", _("Red Value"), 0, 255, self.default_rgb[1]),
+                            self:settingSpinTable("green", "G", _("Green Value"), 0, 255, self.default_rgb[2]),
+                            self:settingSpinTable("blue", "B", _("Blue Value"), 0, 255, self.default_rgb[3]),
                             {
                                 text = _("Reset to default"),
                                 keep_menu_open = true,
@@ -293,18 +315,18 @@ function SendToDiscord:addToMainMenu(menu_items)
                                 end
                             }
                         }
-                    },
-                    {
-                        text = _("Wrap text in code block (whitespaces stay the exact same)"),
-                        checked_func = function()
-                            return self.settings:isTrue("wrap_code_block")
-                        end,
-                        callback = function()
-                            self.settings:toggle("wrap_code_block")
-                            self.settings:flush()
-                        end
                     }
-                }
+                },
+                separator = true
+            },
+            {
+                text = _("About SendToDiscord"),
+                keep_menu_open = true,
+                callback = function()
+                    UIManager:show(InfoMessage:new{
+                        text = _("SendToDiscord lets you send highlighted text and text from your clipboard to Discord in beautiful embeds using webhooks.\n\nSendToDiscord adds the book's title, author and progress to the embed, it also lets you change the embed's color, add a suffix and a prefix to your text, encode spaces incase you want to put the text inside a link and wrap it inside a code block.\n\nStart by adding your Discord webhook url in the settings.")
+                    })
+                end
             }
         }
     }
