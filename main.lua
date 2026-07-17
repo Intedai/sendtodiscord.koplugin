@@ -5,8 +5,6 @@ This plugin lets you send highlighted text to Discord using Webhooks.
 --]]--
 
 -- TODOS:
--- Put discord webhook url in settings (and maybe config file that will override settings) instead of var
--- Add an option to have the text enclosed in ```
 -- Add prefix and suffix in options
 -- Add color option
 -- Use util.trim when needed, if ``` is used dont trim, in embeds without ``` trim and remove multiple spaces
@@ -25,10 +23,9 @@ local InfoMessage = require("ui/widget/infomessage")
 local LuaSettings = require("luasettings")
 local DataStorage = require("datastorage")
 local ffiUtil = require("ffi/util")
+local InputDialog = require("ui/widget/inputdialog")
 
 local T = ffiUtil.template
-
-local WEBHOOK_URL = "URL-HERE"
 
 local SendToDiscord = WidgetContainer:extend{
     name = "sendtodiscord",
@@ -43,6 +40,7 @@ function SendToDiscord:init()
     self.ui.menu:registerToMainMenu(self)
 
     self.settings = LuaSettings:open(("%s/%s"):format(DataStorage:getSettingsDir(), self.settings_file))
+    self.settings:readSetting("webhook_url", "")
 end
 
 function SendToDiscord:warn(text)
@@ -74,7 +72,7 @@ function SendToDiscord:send(authors, title, text, footer_text)
     local response = {}
     local result, code, _headers, status = http.request {
         method = "POST",
-        url = WEBHOOK_URL,
+        url = self.settings:readSetting("webhook_url"),
         headers = {
             ["Content-Type"] = "application/json",
             ["Content-Length"] = #data
@@ -127,7 +125,6 @@ function SendToDiscord:addToHighlightDialog()
                     text = util.cleanupSelectedText(text)
                 end
 
-
                 local book_title = doc_metadata.title or _("Unknown Title")
                 local book_author = PluginUtil:linesToSingleLine(doc_metadata.authors or _("Unknown Author"))
                 
@@ -174,7 +171,40 @@ function SendToDiscord:addToMainMenu(menu_items)
                 text = _("Settings"),
                 sub_item_table = {
                     {
-                        text = _("Webhook URL")
+                        text_func =  function()
+                            return T(_("Webhook URL: %1"), self.settings:readSetting("webhook_url"))
+                        end,
+                        callback = function(touchmenu_instance)
+                            self.webhook_dialog = InputDialog:new{
+                                title = _("Webhook URL"),
+                                description = _("Enter your webhook url:"),
+                                input = self.settings:readSetting("webhook_url"),
+                                buttons = {{
+                                    {
+                                        text = _("Cancel"),
+                                        callback = function()
+                                            UIManager:close(self.webhook_dialog)
+                                        end
+                                    },
+                                    {
+                                        text = _("Save"),
+                                        callback = function()
+                                            local new_webhook = self.webhook_dialog:getInputText()
+                                            self.settings:saveSetting("webhook_url", new_webhook)
+                                            self.settings:flush()
+                                            UIManager:close(self.webhook_dialog)
+                                            if touchmenu_instance then
+                                                touchmenu_instance:updateItems()
+                                            end
+                                        end
+                                    }
+                                }}
+                            }
+
+                            UIManager:show(self.webhook_dialog)
+                            self.webhook_dialog:onShowKeyboard()
+
+                        end
                     },
                     {
                         text = _("Wrap text in code block (whitespaces stay the exact same)"),
