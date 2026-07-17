@@ -1,5 +1,6 @@
 local util = require("util")
 local Math = require("optmath")
+local bit = require("bit")
 
 local PluginUtil = {}
 
@@ -28,6 +29,18 @@ Rounds a percentage to a percentage from 0% to 100%
 ]]
 function PluginUtil:myRoundPercent(percent)
     return  Math.round(Math.roundPercent(percent) * 100)
+end
+
+--[[--
+Converts rgb to single int
+
+@tparam int r
+@tparam int g
+@tparam int b
+@treturn int rgb
+]]
+function PluginUtil:rgbToInt(r, g, b)
+    return bit.bor(bit.lshift(r, 16), bit.lshift(g, 8), b)
 end
 
 return PluginUtil

@@ -5,7 +5,6 @@ This plugin lets you send highlighted text to Discord using Webhooks.
 --]]--
 
 -- TODOS:
--- Add color option
 -- Use util.trim when needed, if ``` is used dont trim, in embeds without ``` trim and remove multiple spaces
 
 local Device = require("device")
@@ -23,6 +22,7 @@ local LuaSettings = require("luasettings")
 local DataStorage = require("datastorage")
 local ffiUtil = require("ffi/util")
 local InputDialog = require("ui/widget/inputdialog")
+local SpinWidget = require("ui/widget/spinwidget")
 
 local T = ffiUtil.template
 
@@ -43,6 +43,12 @@ function SendToDiscord:init()
     self.settings:readSetting("webhook_url", "")
     self.settings:readSetting("prefix_text", "")
     self.settings:readSetting("suffix_text", "")
+
+    -- Embed's RGB
+    self.default_rgb = {0, 0, 128} -- Lua's color
+    self.settings:readSetting("red", self.default_rgb[1])
+    self.settings:readSetting("green", self.default_rgb[2])
+    self.settings:readSetting("blue", self.default_rgb[3])
 end
 
 function SendToDiscord:warn(text)
@@ -62,7 +68,11 @@ function SendToDiscord:send(authors, title, text, footer_text)
                     name = authors
                 },
                 title = title,
-                color = 128, -- Lua color
+                color = PluginUtil:rgbToInt(
+                    self.settings:readSetting("red"),
+                    self.settings:readSetting("green"),
+                    self.settings:readSetting("blue")
+                ),
                 description = text,
                 footer = {
                     text = footer_text
@@ -105,6 +115,21 @@ function  SendToDiscord:getPercentProgress()
     end
 end
 
+function SendToDiscord:addPrefixSuffix(text)
+    return self.settings:readSetting("prefix_text") .. text .. self.settings:readSetting("suffix_text")
+end
+
+function SendToDiscord:finalText(text)
+    text = self:addPrefixSuffix(text)
+    if self.settings:isTrue("wrap_code_block") then
+        text = "```" .. text .. "```"
+    else
+        text = util.cleanupSelectedText(text)
+    end
+
+    return text
+end
+
 function SendToDiscord:addToHighlightDialog()
     -- Naming the button 12_discord_send makes the button appear before the QR code generator button
     -- because it's called 12_generate_qr_code, and the buttons are sorted alphabetically
@@ -118,14 +143,7 @@ function SendToDiscord:addToHighlightDialog()
                 
                 local doc_metadata = self.document:getProps()
                 
-                local wrap_code_block = self.settings:isTrue("wrap_code_block")
-                
-                local text = self.settings:readSetting("prefix_text") .. this.selected_text.text .. self.settings:readSetting("suffix_text")
-                if wrap_code_block then
-                    text = "```" .. text .. "```"
-                else
-                    text = util.cleanupSelectedText(text)
-                end
+                local text = self:finalText(this.selected_text.text)
 
                 local book_title = doc_metadata.title or _("Unknown Title")
                 local book_author = PluginUtil:linesToSingleLine(doc_metadata.authors or _("Unknown Author"))
@@ -157,6 +175,7 @@ function SendToDiscord:settingInputTable(setting, setting_title, dialog_descript
         text_func = function()
             return T("%1: %2", setting_title, self.settings:readSetting(setting))
         end,
+        keep_menu_open = true,
         callback = function(touchmenu_instance)            
             self.curr_dialog = InputDialog:new{
                 title = setting_title,
@@ -190,6 +209,31 @@ function SendToDiscord:settingInputTable(setting, setting_title, dialog_descript
     }
 end
 
+function SendToDiscord:settingSpinTable(setting, setting_title, widget_title, min, max, default)
+    return {
+        text_func = function()
+            return T("%1: %2", setting_title, self.settings:readSetting(setting))
+        end,
+        keep_menu_open = true,
+        callback = function(touchmenu_instance)
+            UIManager:show(SpinWidget:new{
+                title_text = widget_title,
+                value = self.settings:readSetting(setting),
+                value_min = min,
+                value_max = max,
+                default_value = default,
+                callback = function(spin)
+                    self.settings:saveSetting(setting, spin.value)
+                    self.settings:flush()
+                    if touchmenu_instance then
+                        touchmenu_instance:updateItems()
+                    end              
+                end
+            })         
+        end
+    }
+end
+
 function SendToDiscord:addToMainMenu(menu_items)
     menu_items.sendtodiscord = {
         text = _("SendToDiscord"),
@@ -197,10 +241,14 @@ function SendToDiscord:addToMainMenu(menu_items)
             {
                 text = _("Send clipboard to Discord"),
                 callback = function()
-                    local clipboard_text = util.cleanupSelectedText(Device.input.getClipboardText())
                     if not Device:hasClipboard() then
                         self:warn(_("This device does not have a clipboard"))
-                    elseif clipboard_text == nil or clipboard_text == "" then
+                        return
+                    end
+                    
+                    local clipboard_text = self:finalText(Device.input.getClipboardText())
+
+                    if clipboard_text == nil or clipboard_text == "" then
                         self:warn(_("Clipboard is empty, did not send anything to Discord"))
                     else
                         self:send("KOReader", _("Clipboard"), clipboard_text, _("Last copied text"))
@@ -226,6 +274,27 @@ function SendToDiscord:addToMainMenu(menu_items)
                         _("Enter text that will be added after the copied text:")
                     ),
                     {
+                        text = _("Embed Color"),
+                        sub_item_table = {
+                            self:settingSpinTable("red", "R", _("Red value"), 0, 255, self.default_rgb[1]),
+                            self:settingSpinTable("green", "G", _("Green value"), 0, 255, self.default_rgb[2]),
+                            self:settingSpinTable("blue", "B", _("Blue value"), 0, 255, self.default_rgb[3]),
+                            {
+                                text = _("Reset to default"),
+                                keep_menu_open = true,
+                                callback = function(touchmenu_instance)
+                                    self.settings:saveSetting("red", self.default_rgb[1])
+                                    self.settings:saveSetting("green", self.default_rgb[2])
+                                    self.settings:saveSetting("blue", self.default_rgb[3])
+                                    self.settings:flush()
+                                    if touchmenu_instance then
+                                        touchmenu_instance:updateItems()
+                                    end 
+                                end
+                            }
+                        }
+                    },
+                    {
                         text = _("Wrap text in code block (whitespaces stay the exact same)"),
                         checked_func = function()
                             return self.settings:isTrue("wrap_code_block")
@@ -234,8 +303,7 @@ function SendToDiscord:addToMainMenu(menu_items)
                             self.settings:toggle("wrap_code_block")
                             self.settings:flush()
                         end
-                    },
-
+                    }
                 }
             }
         }
