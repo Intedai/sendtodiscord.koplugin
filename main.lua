@@ -44,6 +44,8 @@ function SendToDiscord:init()
     self.settings:readSetting("prefix_text", "")
     self.settings:readSetting("suffix_text", "")
 
+    self.settings:readSetting("space_encoding", " ")
+
     -- Embed's RGB
     self.default_rgb = {0, 0, 128} -- Lua's color
     self.settings:readSetting("red", self.default_rgb[1])
@@ -120,7 +122,14 @@ function SendToDiscord:addPrefixSuffix(text)
 end
 
 function SendToDiscord:finalText(text)
+    local new_space = self.settings:readSetting("space_encoding")
+
+    if new_space ~= " " then
+        text = text:gsub(" ", new_space)
+    end
+
     text = self:addPrefixSuffix(text)
+
     if self.settings:isTrue("wrap_code_block") then
         text = "```" .. text .. "```"
     else
@@ -170,11 +179,12 @@ function SendToDiscord:addToHighlightDialog()
     end)
 end
 
-function SendToDiscord:settingInputTable(setting, setting_title, dialog_description)
+function SendToDiscord:settingInputTable(setting, setting_title, dialog_description, add_separator)
     return {
         text_func = function()
             return T("%1: %2", setting_title, self.settings:readSetting(setting))
         end,
+        separator = add_separator,
         keep_menu_open = true,
         callback = function(touchmenu_instance)            
             self.curr_dialog = InputDialog:new{
@@ -209,11 +219,12 @@ function SendToDiscord:settingInputTable(setting, setting_title, dialog_descript
     }
 end
 
-function SendToDiscord:settingSpinTable(setting, setting_title, widget_title, min, max, default)
+function SendToDiscord:settingSpinTable(setting, setting_title, widget_title, min, max, default, add_separator)
     return {
         text_func = function()
             return T("%1: %2", setting_title, self.settings:readSetting(setting))
         end,
+        separator = add_separator,
         keep_menu_open = true,
         callback = function(touchmenu_instance)
             UIManager:show(SpinWidget:new{
@@ -247,6 +258,21 @@ function SendToDiscord:settingCheckboxTable(setting, setting_title)
     }
 end
 
+-- If a value must be chosen a default value corresponding to one of the values must be set in the init func
+function SendToDiscord:radioButtonTable(setting, title, value)
+    return {
+        text = title,
+        checked_func = function()
+            return self.settings:readSetting(setting) == value
+        end,
+        radio = true,
+        callback = function()
+            self.settings:saveSetting(setting, value)
+            self.settings:flush()
+        end
+    }
+end
+
 function SendToDiscord:addToMainMenu(menu_items)
     menu_items.sendtodiscord = {
         text = _("SendToDiscord"),
@@ -274,33 +300,47 @@ function SendToDiscord:addToMainMenu(menu_items)
                     self:settingInputTable(
                         "webhook_url",
                         _("Webhook URL"),
-                        _("Enter your webhook url:")
+                        _("Enter your webhook url:"),
+                        true
                     ),
                     {
-                        text = _("Text Manipulation"),
+                        text = _("Text manipulation"),
                         sub_item_table = {
+                            {
+                                text = _("Space encoding (usually for urls)"),
+                                separator = true,
+                                sub_item_table = {
+                                    self:radioButtonTable("space_encoding", "None", " "),
+                                    self:radioButtonTable("space_encoding", "%20", "%%20"),
+                                    self:radioButtonTable("space_encoding", "- (dash)", "-"),
+                                    self:radioButtonTable("space_encoding", "_ (underscore)", "_"),
+                                    self:radioButtonTable("space_encoding", "+", "+"),
+                                }
+                            },
                             self:settingInputTable(
                                 "prefix_text",
-                                _("Prefix Text"),
-                                _("Enter text that will be added before the copied text:")
+                                _("Prefix text"),
+                                _("Enter text that will be added before the copied text:"),
+                                false
                             ),
                             self:settingInputTable(
                                 "suffix_text",
-                                _("Suffix Text"),
-                                _("Enter text that will be added after the copied text:")
+                                _("Suffix text"),
+                                _("Enter text that will be added after the copied text:"),
+                                true
                             ),
                             self:settingCheckboxTable(
                                 "wrap_code_block",
-                                _("Wrap text in code block (whitespaces stay the exact same)")
+                                _("Wrap text in code block (whitespaces stay the exact same, doesn't matter for spaces if encoded)")
                             )
                         }
                     },
                     {
-                        text = _("Embed Color"),
+                        text = _("Embed color"),
                         sub_item_table = {
-                            self:settingSpinTable("red", "R", _("Red Value"), 0, 255, self.default_rgb[1]),
-                            self:settingSpinTable("green", "G", _("Green Value"), 0, 255, self.default_rgb[2]),
-                            self:settingSpinTable("blue", "B", _("Blue Value"), 0, 255, self.default_rgb[3]),
+                            self:settingSpinTable("red", "R", _("Red value"), 0, 255, self.default_rgb[1], false),
+                            self:settingSpinTable("green", "G", _("Green value"), 0, 255, self.default_rgb[2], false),
+                            self:settingSpinTable("blue", "B", _("Blue value"), 0, 255, self.default_rgb[3], true),
                             {
                                 text = _("Reset to default"),
                                 keep_menu_open = true,
