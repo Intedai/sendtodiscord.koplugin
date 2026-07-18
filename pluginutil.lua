@@ -12,6 +12,10 @@ but the last line is seperated by "and"
 @treturn string line seperated by commas, last line is seperated by "and"
 ]]
 function PluginUtil:linesToSingleLine(lines_str)
+    if not lines_str then
+        return lines_str    
+    end
+
     local lines = util.splitToArray(lines_str, "\n")
     if #lines == 1 then
         return lines_str
@@ -51,6 +55,10 @@ Checks if a string's length is more than a given amount of UTF-8 chars
 @treturn bool length more than count
 ]]
 function PluginUtil:lenMoreThan(str, count)
+    if not str then
+        return false
+    end
+
     local len = 0
     for _ in str:gmatch(util.UTF8_CHAR_PATTERN) do
         len = len + 1
@@ -60,6 +68,29 @@ function PluginUtil:lenMoreThan(str, count)
     end
 
     return false
+end
+
+--[[--
+Truncates a string to a given length with a maximum of 3 dots added
+
+@tparam str
+@tparam len
+@treturn truncated string
+]]
+function PluginUtil:truncateString(str, len)
+    if not str then
+        return str       
+    elseif len <= 3 then
+        return string.rep(".", len)
+    end
+    
+    local chars = util.splitToChars(str)
+    print(#chars)
+    if #chars > len then
+        return table.concat(chars, "", 1, len - 3) .. "..." 
+    end
+
+    return str
 end
 
 return PluginUtil

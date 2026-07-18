@@ -17,7 +17,6 @@ local LuaSettings = require("luasettings")
 local DataStorage = require("datastorage")
 local ffiUtil = require("ffi/util")
 local InputDialog = require("ui/widget/inputdialog")
-local SpinWidget = require("ui/widget/spinwidget")
 
 local T = ffiUtil.template
 
@@ -68,8 +67,13 @@ function SendToDiscord:send(authors, title, text, footer_text, timeout, maxtime)
         return
     end
 
+    authors = PluginUtil:truncateString(authors, 256)
+    title = PluginUtil:truncateString(title, 256)
+    footer_text = PluginUtil:truncateString(footer_text, 2048)
+    
     local http = require("socket.http")
     local ltn12 = require("ltn12")
+    local socketutil = require("socketutil")
 
     local data = JSON.encode({
         embeds = {
@@ -91,6 +95,10 @@ function SendToDiscord:send(authors, title, text, footer_text, timeout, maxtime)
         }
     })
 
+    local timeout = 10
+    local maxtime = 30
+
+    socketutil:set_timeout(timeout, maxtime)
     local function webhookReq()        
 
         local try_again = false
@@ -104,7 +112,7 @@ function SendToDiscord:send(authors, title, text, footer_text, timeout, maxtime)
                 ["Content-Length"] = #data
             },
             source = ltn12.source.string(data),
-            sink = ltn12.sink.table(response)
+            sink = socketutil.table_sink(response)
         }
         local response = table.concat(response)
         
@@ -142,6 +150,8 @@ function SendToDiscord:send(authors, title, text, footer_text, timeout, maxtime)
             self:warn(_("You are being rate limited, couldn't fetch the wait time until you can retry sending the request"))
         end
     end
+
+    socketutil:reset_timeout()
 end
 
 function  SendToDiscord:getPercentProgress()
@@ -262,6 +272,8 @@ function SendToDiscord:settingInputTable(setting, setting_title, dialog_descript
 end
 
 function SendToDiscord:settingSpinTable(setting, setting_title, widget_title, min, max, default, add_separator)
+    local SpinWidget = require("ui/widget/spinwidget")
+    
     return {
         text_func = function()
             return T("%1: %2", setting_title, self.settings:readSetting(setting))
