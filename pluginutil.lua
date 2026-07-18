@@ -43,4 +43,23 @@ function PluginUtil:rgbToInt(r, g, b)
     return bit.bor(bit.lshift(r, 16), bit.lshift(g, 8), b)
 end
 
+--[[--
+Checks if a string's length is more than a given amount of UTF-8 chars
+
+@tparam str
+@tparam count
+@treturn bool length more than count
+]]
+function PluginUtil:lenMoreThan(str, count)
+    local len = 0
+    for _ in str:gmatch(util.UTF8_CHAR_PATTERN) do
+        len = len + 1
+        if len > count then
+            return true
+        end
+    end
+
+    return false
+end
+
 return PluginUtil

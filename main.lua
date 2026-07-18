@@ -12,8 +12,6 @@ local WidgetContainer = require("ui/widget/container/widgetcontainer")
 local util = require("util")
 local PluginUtil = require("pluginutil")
 local _ = require("gettext")
-local http = require("socket.http")
-local ltn12 = require("ltn12")
 local logger = require("logger")
 local JSON = require("json")
 local UIManager = require("ui/uimanager")
@@ -56,13 +54,26 @@ end
 function SendToDiscord:warn(text)
     logger.warn(text)
 
-    UIManager:show(InfoMessage:new{
+    local warning_msg = InfoMessage:new{
         icon = "notice-warning",
-        text = text
-    })
+        text = text,
+    }
+
+    UIManager:show(warning_msg)
+
+    return warning_msg
 end
 
-function SendToDiscord:send(authors, title, text, footer_text)
+function SendToDiscord:send(authors, title, text, footer_text, timeout, maxtime)
+    local max_chars = 4096
+    if PluginUtil:lenMoreThan(text, max_chars) then
+        self:warn(T(_("Text's length must be less than or equal to %1"), max_chars))
+        return
+    end
+
+    local http = require("socket.http")
+    local ltn12 = require("ltn12")
+
     local data = JSON.encode({
         embeds = {
             {
@@ -83,29 +94,52 @@ function SendToDiscord:send(authors, title, text, footer_text)
         }
     })
 
-    local response = {}
-    local result, code, _headers, status = http.request {
-        method = "POST",
-        url = self.settings:readSetting("webhook_url"),
-        headers = {
-            ["Content-Type"] = "application/json",
-            ["Content-Length"] = #data
-        },
-        source = ltn12.source.string(data),
-        sink = ltn12.sink.table(response)
-    }
-    if result ~= 1 then
-        self:warn(T(_("Failed to send request: %1"), code))
-    elseif code == 204 or code == 200 then
-        -- TODO: If text is more than 4096 characters loop until u send all of it
-        logger.info(_("Sent highlighted text to Discord successfuly"))
-    elseif code == 429 then
-        --TODO: Implement resend in time sent in response
+    local function webhookReq()        
+
+        local try_again = false
+        local response = {}
+
+        local result, code, headers, status = http.request {
+            method = "POST",
+            url = self.settings:readSetting("webhook_url"),
+            headers = {
+                ["Content-Type"] = "application/json",
+                ["Content-Length"] = #data
+            },
+            source = ltn12.source.string(data),
+            sink = ltn12.sink.table(response)
+        }
         local response = table.concat(response)
-        print(response)
-        logger.warn(T(_("You are being rate limited, trying again in %1 seconds"), "X")) -- TODO: add timeout to warn function when implementing this, timeout is optional
-    else
-        self:warn(T(_("Failed, HTTP status code: %1"), code))
+        
+        if result ~= 1 then
+            self:warn(T(_("Failed to send request: %1"), code))
+        elseif code == 204 or code == 200 then
+            logger.info(_("Sent highlighted text to Discord successfuly"))
+        elseif code ~= 429 then
+            self:warn(T(_("Failed, HTTP status code: %1"), code))
+        else
+            try_again = true
+        end
+
+        return try_again, response
+    end
+
+    local try_again, response = webhookReq()
+
+    if try_again then
+        local ok, result = pcall(JSON.decode, response)
+        if ok and result and result.retry_after and type(result.retry_after) == "number" then
+            local retry_after = result.retry_after
+            local warnning_msg = self:warn(T(_("You are being rate limited, trying again in %1 seconds"), retry_after))
+            ffiUtil.sleep(retry_after)
+            UIManager:close(warnning_msg)
+            local try_again = webhookReq()
+            if try_again then
+                self:warn(T(_("Failed to send after waiting %1 seconds and sending a request again"), retry_after))
+            end
+        else
+            self:warn(_("You are being rate limited, couldn't fetch the wait time until you can retry sending the request"))
+        end
     end
 end
 
