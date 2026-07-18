@@ -4,9 +4,6 @@ This plugin lets you send highlighted text and text from your clipboard to Disco
 @module koplugin.SendToDiscord
 --]]--
 
--- TODOS:
--- Use util.trim when needed, if ``` is used dont trim, in embeds without ``` trim and remove multiple spaces
-
 local Device = require("device")
 local WidgetContainer = require("ui/widget/container/widgetcontainer")
 local util = require("util")
@@ -130,9 +127,13 @@ function SendToDiscord:send(authors, title, text, footer_text, timeout, maxtime)
         local ok, result = pcall(JSON.decode, response)
         if ok and result and result.retry_after and type(result.retry_after) == "number" then
             local retry_after = result.retry_after
+
             local warnning_msg = self:warn(T(_("You are being rate limited, trying again in %1 seconds"), retry_after))
+            -- Make the warning show before sleep
+            UIManager:forceRePaint()
             ffiUtil.sleep(retry_after)
             UIManager:close(warnning_msg)
+
             local try_again = webhookReq()
             if try_again then
                 self:warn(T(_("Failed to send after waiting %1 seconds and sending a request again"), retry_after))
@@ -157,17 +158,24 @@ end
 
 function SendToDiscord:finalText(text)
     local new_space = self.settings:readSetting("space_encoding")
+    local wrap_code_block = self.settings:isTrue("wrap_code_block")
+
+    -- Trim and turn consecutive whitespaces into a single space (not including new line)
+    -- Exactly like Discord embeds when not in code block
+    -- Do this on space encoded strings as well, use the code block option for keeping spaces unchanged
+    if not wrap_code_block then
+        text = util.cleanupSelectedText(text)
+    end
 
     if new_space ~= " " then
         text = text:gsub(" ", new_space)
     end
 
+    -- Intentionally does not encode spaces
     text = self:addPrefixSuffix(text)
 
-    if self.settings:isTrue("wrap_code_block") then
+    if wrap_code_block then
         text = "```" .. text .. "```"
-    else
-        text = util.cleanupSelectedText(text)
     end
 
     return text
