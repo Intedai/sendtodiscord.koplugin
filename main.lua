@@ -60,17 +60,35 @@ function SendToDiscord:warn(text)
     return warning_msg
 end
 
-function SendToDiscord:send(authors, title, text, footer_text, timeout, maxtime)
-    local max_chars = 4096
-    if PluginUtil:lenMoreThan(text, max_chars) then
+function SendToDiscord:send(authors, title, text, percent_progress, page_progress)
+    local max_total_chars = 6000
+    local max_text_chars = 4096
+    local max_footer_text_chars = 2048
+    local max_author_and_title_chars = 256
+
+    local text_len = PluginUtil:utf8Len(text)
+
+    if text_len > 4096 then
         self:warn(T(_("Text's length must be less than or equal to %1"), max_chars))
         return
     end
-
-    authors = PluginUtil:truncateString(authors, 256)
-    title = PluginUtil:truncateString(title, 256)
-    footer_text = PluginUtil:truncateString(footer_text, 2048)
     
+    -- If page_progress is nil only show percent_progress
+    local footer_text = percent_progress and page_progress .. "  •  " .. percent_progress
+    local footer_len = PluginUtil:utf8Len(footer_text)
+
+    local authors_len, title_len
+
+    authors, authors_len = PluginUtil:truncateString(authors, max_author_and_title_chars)
+    title, title_len = PluginUtil:truncateString(title, max_author_and_title_chars)
+
+    local remaining_for_footer = max_total_chars - text_len - authors_len - title_len
+
+    -- Works because percent_progress is max 4 chars (100%) and the sum of 4 and all max chars is less than 6000 
+    if page_progress ~= nil and (footer_len > 2048 or footer_len > remaining_for_footer) then
+        footer_text = percent_progress
+    end
+
     local http = require("socket.http")
     local ltn12 = require("ltn12")
     local socketutil = require("socketutil")
@@ -220,10 +238,7 @@ function SendToDiscord:addToHighlightDialog()
                 
                 local percent_progress = self:getPercentProgress() .. "%"
 
-                -- If page_progress is nill only show percent_progress
-                local footer = percent_progress and page_progress .. "  •  " .. percent_progress
-
-                self:send(book_author, book_title, text, footer)
+                self:send(book_author, book_title, text, percent_progress, page_progress)
                 
                 this:onClose(true)
             end,

@@ -48,26 +48,22 @@ function PluginUtil:rgbToInt(r, g, b)
 end
 
 --[[--
-Checks if a string's length is more than a given amount of UTF-8 chars
+Return the length of a UTF-8 string 
 
 @tparam str
-@tparam count
-@treturn bool length more than count
+@treturn length
 ]]
-function PluginUtil:lenMoreThan(str, count)
+function PluginUtil:utf8Len(str)
     if not str then
-        return false
+        return 0
     end
 
     local len = 0
     for _ in str:gmatch(util.UTF8_CHAR_PATTERN) do
         len = len + 1
-        if len > count then
-            return true
-        end
     end
 
-    return false
+    return len
 end
 
 --[[--
@@ -75,22 +71,22 @@ Truncates a string to a given length with a maximum of 3 dots added
 
 @tparam str
 @tparam len
-@treturn truncated string
+@treturn truncated string and new length
 ]]
 function PluginUtil:truncateString(str, len)
     if not str then
-        return str       
+        return str, 0
     elseif len <= 3 then
-        return string.rep(".", len)
+        return string.rep(".", len), len
     end
     
     local chars = util.splitToChars(str)
-    print(#chars)
+
     if #chars > len then
-        return table.concat(chars, "", 1, len - 3) .. "..." 
+        return table.concat(chars, "", 1, len - 3) .. "...", len
     end
 
-    return str
+    return str, #chars
 end
 
 return PluginUtil
