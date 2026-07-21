@@ -11,7 +11,7 @@ but the last line is seperated by "and"
 @tparam string lines_str
 @treturn string line seperated by commas, last line is seperated by "and"
 ]]
-function PluginUtil:linesToSingleLine(lines_str)
+function PluginUtil.linesToSingleLine(lines_str)
     if not lines_str then
         return lines_str    
     end
@@ -31,7 +31,7 @@ Rounds a percentage to a percentage from 0% to 100%
 @tparam float percent
 @treturn int rounded percentage from 0% to 100%
 ]]
-function PluginUtil:myRoundPercent(percent)
+function PluginUtil.myRoundPercent(percent)
     return  Math.round(Math.roundPercent(percent) * 100)
 end
 
@@ -43,7 +43,7 @@ Converts rgb to single int
 @tparam int b
 @treturn int rgb
 ]]
-function PluginUtil:rgbToInt(r, g, b)
+function PluginUtil.rgbToInt(r, g, b)
     return bit.bor(bit.lshift(r, 16), bit.lshift(g, 8), b)
 end
 
@@ -53,7 +53,7 @@ Return the length of a UTF-8 string
 @tparam str
 @treturn length
 ]]
-function PluginUtil:utf8Len(str)
+function PluginUtil.utf8Len(str)
     if not str then
         return 0
     end
@@ -73,7 +73,7 @@ Truncates a string to a given length with a maximum of 3 dots added
 @tparam len
 @treturn truncated string and new length
 ]]
-function PluginUtil:truncateString(str, len)
+function PluginUtil.truncateString(str, len)
     if not str then
         return str, 0
     elseif len <= 3 then
@@ -87,6 +87,23 @@ function PluginUtil:truncateString(str, len)
     end
 
     return str, #chars
+end
+
+function PluginUtil.verifyWebhookUrl(url)
+    local socket_url = require("socket.url")
+
+    local parsed = socket_url.parse(url)
+
+    if url == "" then return false end
+    
+    if parsed.scheme == "https"
+       and parsed.host == "discord.com"
+       and util.stringStartsWith(parsed.path, "/api/webhooks/")
+       then
+        return true
+    end
+
+    return false
 end
 
 return PluginUtil

@@ -60,33 +60,46 @@ function SendToDiscord:warn(text)
     return warning_msg
 end
 
-function SendToDiscord:send(authors, title, text, percent_progress, page_progress)
+function SendToDiscord:send(authors, title, text, footer_text, additional_footer_info)
+    local url = self.settings:readSetting("webhook_url")
+
+    if not PluginUtil.verifyWebhookUrl(url) then
+        if url == "" then
+            self:warn(_("Empty Discord webhook url, change it in the settings"))
+        else
+            self:warn(_("Bad Discord webhook url, change it in the settings"))
+        end
+
+        return
+    end
+
     local max_total_chars = 6000
     local max_text_chars = 4096
     local max_footer_text_chars = 2048
     local max_author_and_title_chars = 256
 
-    local text_len = PluginUtil:utf8Len(text)
+    local text_len = PluginUtil.utf8Len(text)
 
-    if text_len > 4096 then
-        self:warn(T(_("Text's length must be less than or equal to %1"), max_chars))
+    if text_len > max_text_chars then
+        self:warn(T(_("Text's length must be less than or equal to %1"), max_text_chars))
         return
     end
     
-    -- If page_progress is nil only show percent_progress
-    local footer_text = percent_progress and page_progress .. "  •  " .. percent_progress
-    local footer_len = PluginUtil:utf8Len(footer_text)
+    -- If additional_footer_info is nil only show footer_text
+    local final_footer_text = additional_footer_info and additional_footer_info .. "  •  " .. footer_text or footer_text
+
+    local footer_len = PluginUtil.utf8Len(final_footer_text)
 
     local authors_len, title_len
 
-    authors, authors_len = PluginUtil:truncateString(authors, max_author_and_title_chars)
-    title, title_len = PluginUtil:truncateString(title, max_author_and_title_chars)
+    authors, authors_len = PluginUtil.truncateString(authors, max_author_and_title_chars)
+    title, title_len = PluginUtil.truncateString(title, max_author_and_title_chars)
 
     local remaining_for_footer = max_total_chars - text_len - authors_len - title_len
 
-    -- Works because percent_progress is max 4 chars (100%) and the sum of 4 and all max chars is less than 6000 
-    if page_progress ~= nil and (footer_len > 2048 or footer_len > remaining_for_footer) then
-        footer_text = percent_progress
+    -- Works because footer_text is max 4 chars (100%) and the sum of 4 and all max chars is less than 6000 
+    if additional_footer_info ~= nil and (footer_len > max_footer_text_chars or footer_len > remaining_for_footer) then
+        final_footer_text = footer_text
     end
 
     local http = require("socket.http")
@@ -100,14 +113,14 @@ function SendToDiscord:send(authors, title, text, percent_progress, page_progres
                     name = authors
                 },
                 title = title,
-                color = PluginUtil:rgbToInt(
+                color = PluginUtil.rgbToInt(
                     self.settings:readSetting("red"),
                     self.settings:readSetting("green"),
                     self.settings:readSetting("blue")
                 ),
                 description = text,
                 footer = {
-                    text = footer_text
+                    text = final_footer_text
                 }
             }
         }
@@ -124,7 +137,7 @@ function SendToDiscord:send(authors, title, text, percent_progress, page_progres
 
         local result, code, headers, status = http.request {
             method = "POST",
-            url = self.settings:readSetting("webhook_url"),
+            url = url,
             headers = {
                 ["Content-Type"] = "application/json",
                 ["Content-Length"] = #data
@@ -137,7 +150,7 @@ function SendToDiscord:send(authors, title, text, percent_progress, page_progres
         if result ~= 1 then
             self:warn(T(_("Failed to send request: %1"), code))
         elseif code == 204 or code == 200 then
-            logger.info(_("Sent highlighted text to Discord successfuly"))
+            logger.info(_("Sent highlighted text to Discord successfully"))
         elseif code ~= 429 then
             self:warn(T(_("Failed, HTTP status code: %1"), code))
         else
@@ -154,11 +167,11 @@ function SendToDiscord:send(authors, title, text, percent_progress, page_progres
         if ok and result and result.retry_after and type(result.retry_after) == "number" then
             local retry_after = result.retry_after
 
-            local warnning_msg = self:warn(T(_("You are being rate limited, trying again in %1 seconds"), retry_after))
+            local warning_msg = self:warn(T(_("You are being rate limited, trying again in %1 seconds"), retry_after))
             -- Make the warning show before sleep
             UIManager:forceRePaint()
             ffiUtil.sleep(retry_after)
-            UIManager:close(warnning_msg)
+            UIManager:close(warning_msg)
 
             local try_again = webhookReq()
             if try_again then
@@ -174,9 +187,9 @@ end
 
 function  SendToDiscord:getPercentProgress()
     if self.ui.document.info.has_pages then
-        return PluginUtil:myRoundPercent(self.ui.paging:getLastPercent())
+        return PluginUtil.myRoundPercent(self.ui.paging:getLastPercent())
     else
-        return PluginUtil:myRoundPercent(self.ui.rolling:getLastPercent())
+        return PluginUtil.myRoundPercent(self.ui.rolling:getLastPercent())
     end
 end
 
@@ -225,7 +238,7 @@ function SendToDiscord:addToHighlightDialog()
                 local text = self:finalText(this.selected_text.text)
 
                 local book_title = doc_metadata.title or _("Unknown Title")
-                local book_author = PluginUtil:linesToSingleLine(doc_metadata.authors or _("Unknown Author"))
+                local book_author = PluginUtil.linesToSingleLine(doc_metadata.authors or _("Unknown Author"))
                 
                 local curr_page = self.ui:getCurrentPage()
                 local total_pages = self.ui.document:getPageCount()
@@ -246,14 +259,14 @@ function SendToDiscord:addToHighlightDialog()
     end)
 end
 
-function SendToDiscord:settingInputTable(setting, setting_title, dialog_description, add_separator)
+function SendToDiscord:settingInputTable(setting, setting_title, dialog_description, add_separator, trim, verify_func)
     return {
         text_func = function()
             return T("%1: %2", setting_title, self.settings:readSetting(setting))
         end,
         separator = add_separator,
         keep_menu_open = true,
-        callback = function(touchmenu_instance)            
+        callback = function(touchmenu_instance)
             self.curr_dialog = InputDialog:new{
                 title = setting_title,
                 description = dialog_description,
@@ -269,11 +282,20 @@ function SendToDiscord:settingInputTable(setting, setting_title, dialog_descript
                         text = _("Save"),
                         callback = function()
                             local input_text = self.curr_dialog:getInputText()
-                            self.settings:saveSetting(setting, input_text)
-                            self.settings:flush()
-                            UIManager:close(self.curr_dialog)
-                            if touchmenu_instance then
-                                touchmenu_instance:updateItems()
+
+                            if trim then
+                                input_text = util.trim(input_text)
+                            end
+
+                            if not verify_func or verify_func(input_text) then                                
+                                self.settings:saveSetting(setting, input_text)
+                                self.settings:flush()
+                                UIManager:close(self.curr_dialog)
+                                if touchmenu_instance then
+                                    touchmenu_instance:updateItems()
+                                end
+                            else
+                                self:warn(_("Bad Discord webhook url, try entering the url again"))
                             end
                         end
                     }
@@ -370,7 +392,9 @@ function SendToDiscord:addToMainMenu(menu_items)
                         "webhook_url",
                         _("Webhook URL"),
                         _("Enter your webhook url:"),
-                        true
+                        true,
+                        true,
+                        PluginUtil.verifyWebhookUrl
                     ),
                     {
                         text = _("Text manipulation"),
@@ -433,7 +457,7 @@ function SendToDiscord:addToMainMenu(menu_items)
                 keep_menu_open = true,
                 callback = function()
                     UIManager:show(InfoMessage:new{
-                        text = _("SendToDiscord lets you send highlighted text and text from your clipboard to Discord in beautiful embeds using webhooks.\n\nSendToDiscord adds the book's title, author and progress to the embed, it also lets you change the embed's color, add a suffix and a prefix to your text, encode spaces incase you want to put the text inside a link and wrap it inside a code block.\n\nStart by adding your Discord webhook url in the settings.")
+                        text = _("SendToDiscord lets you send highlighted text and text from your clipboard to Discord in beautiful embeds using webhooks.\n\nSendToDiscord adds the book's title, author and progress to the embed, it also lets you change the embed's color, add a suffix and a prefix to your text, encode spaces in case you want to put the text inside a link and wrap it inside a code block.\n\nStart by adding your Discord webhook url in the settings.")
                     })
                 end
             }
