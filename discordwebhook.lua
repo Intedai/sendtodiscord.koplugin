@@ -1,4 +1,5 @@
 local util = require("util")
+local _ = require("gettext")
 
 local DiscordWebhook = {}
 
@@ -16,12 +17,15 @@ Verifies that a url is a Discord webhook url
 @tparam string url
 @treturn bool true if url is a Discord webhook url
 ]]
-function DiscordWebhook.verifyWebhookUrl(url)
+function DiscordWebhook.verifyWebhookUrl(url, warn_func, additional_msg)
     local socket_url = require("socket.url")
 
     local parsed = socket_url.parse(url)
 
-    if url == "" then return false end
+    if url == "" then
+        warn_func(_("Empty Discord webhook url") .. ", " .. additional_msg)
+        return false
+    end
     
     if parsed.scheme == "https"
        and parsed.host == "discord.com"
@@ -30,6 +34,7 @@ function DiscordWebhook.verifyWebhookUrl(url)
         return true
     end
 
+    warn_func(_("Invalid Discord webhook url")  .. ", " .. additional_msg)
     return false
 end
 

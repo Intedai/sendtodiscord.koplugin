@@ -52,7 +52,7 @@ function SendToDiscord:init()
     self.settings:readSetting("blue", self.default_rgb[3])
 end
 
-function SendToDiscord:warn(text, timeout)
+function SendToDiscord.warn(text, timeout)
     logger.warn(text)
 
     local warning_msg = InfoMessage:new{
@@ -67,20 +67,14 @@ end
 function SendToDiscord:send(authors, title, text, footer_text, additional_footer_info)
     local url = self.settings:readSetting("webhook_url")
 
-    if not DiscordWebhook.verifyWebhookUrl(url) then
-        if url == "" then
-            self:warn(_("Empty Discord webhook url, change it in the settings"))
-        else
-            self:warn(_("Bad Discord webhook url, change it in the settings"))
-        end
-
+    if not DiscordWebhook.verifyWebhookUrl(url, self.warn, _("change it in the settings")) then
         return
     end
 
     local text_len = PluginUtil.utf8Len(text)
 
     if text_len > DiscordWebhook.LIMITS.MAX_TEXT_CHARS then
-        self:warn(T(_("Text's length must be less than or equal to %1"), DiscordWebhook.LIMITS.MAX_TEXT_CHARS))
+        self.warn(T(_("Text's length must be less than or equal to %1"), DiscordWebhook.LIMITS.MAX_TEXT_CHARS))
         return
     end
     
@@ -150,7 +144,7 @@ function SendToDiscord:send(authors, title, text, footer_text, additional_footer
         if code == 204 or code == 200 then
             logger.info(_("Sent highlighted text to Discord successfully"))
         elseif code ~= 429 then
-            self:warn(T(_("Failed, status code: %1"), status or code or "network unreachable"))
+            self.warn(T(_("Failed, status code: %1"), status or code or "network unreachable"))
         end
 
         return code, status, response
@@ -162,7 +156,7 @@ function SendToDiscord:send(authors, title, text, footer_text, additional_footer
        code == socketutil.SSL_HANDSHAKE_CODE or
        code == socketutil.SINK_TIMEOUT_CODE
     then
-        self:warn(T(_("Request interrupted: %1"), status or code))
+        self.warn(T(_("Request interrupted: %1"), status or code))
         return
     end
 
@@ -171,7 +165,7 @@ function SendToDiscord:send(authors, title, text, footer_text, additional_footer
         if ok and result and result.retry_after and type(result.retry_after) == "number" then
             local retry_after = result.retry_after
 
-            self:warn(T(
+            self.warn(T(
                 _("You are being rate limited, trying again in %1 seconds\nYou can wait until this message closes or continue reading"), 
                 retry_after
             ))
@@ -179,12 +173,12 @@ function SendToDiscord:send(authors, title, text, footer_text, additional_footer
             UIManager:scheduleIn(retry_after, function()
                 local code, _, _ = webhookReq()
                 if code == 429 then
-                    self:warn(T(_("Failed to send after waiting %1 seconds, try sending again manually later"), retry_after))
+                    self.warn(T(_("Failed to send after waiting %1 seconds, try sending again manually later"), retry_after))
                 end
             end)
 
         else
-            self:warn(_("You are being rate limited, couldn't fetch the wait time until you can retry sending the request"))
+            self.warn(_("You are being rate limited, couldn't fetch the wait time until you can retry sending the request"))
         end
     end
 
@@ -265,21 +259,17 @@ function SendToDiscord:addToHighlightDialog()
 end
 
 function SendToDiscord:settingInputTable(options)
-    local setting = self.settings:readSetting(options.setting)
-    -- TODO: check in all funcs if I can just remove this line, probably can
-    local separator = options.separator or false
-
     return {
         text_func = function()
-            return T("%1: %2", options.setting_title, setting)
+            return T("%1: %2", options.setting_title, self.settings:readSetting(options.setting))
         end,
-        separator = separator,
+        separator = options.separator,
         keep_menu_open = true,
         callback = function(touchmenu_instance)
             self.curr_dialog = InputDialog:new{
                 title = options.setting_title,
                 description = options.dialog_description,
-                input = setting,
+                input = self.settings:readSetting(options.setting),
                 buttons = {{
                     {
                         text = _("Cancel"),
@@ -292,19 +282,19 @@ function SendToDiscord:settingInputTable(options)
                         callback = function()
                             local input_text = self.curr_dialog:getInputText()
 
-                            if trim then
+                            if options.trim then
                                 input_text = util.trim(input_text)
                             end
 
-                            if not options.verify_func or options.verify_func(input_text) then                                
+                            if not options.verify_func
+                               or options.verify_func(input_text, self.warn, options.verify_add_msg or "Bad input, try again")
+                            then                                
                                 self.settings:saveSetting(options.setting, input_text)
                                 self.settings:flush()
                                 UIManager:close(self.curr_dialog)
                                 if touchmenu_instance then
                                     touchmenu_instance:updateItems()
                                 end
-                            else
-                                self:warn(_("Bad Discord webhook url, try entering the url again"))
                             end
                         end
                     }
@@ -318,21 +308,18 @@ function SendToDiscord:settingInputTable(options)
 end
 
 function SendToDiscord:settingSpinTable(options)
-    local setting = self.settings:readSetting(options.setting)
-    local separator = options.separator or false
-
     local SpinWidget = require("ui/widget/spinwidget")
     
     return {
         text_func = function()
-            return T("%1: %2", options.setting_title, setting)
+            return T("%1: %2", options.setting_title, self.settings:readSetting(options.setting))
         end,
-        separator = separator,
+        separator = options.separator,
         keep_menu_open = true,
         callback = function(touchmenu_instance)
             UIManager:show(SpinWidget:new{
                 title_text = options.widget_title,
-                value = setting,
+                value = self.settings:readSetting(options.setting),
                 value_min = options.min,
                 value_max = options.max,
                 default_value = options.default,
@@ -349,11 +336,9 @@ function SendToDiscord:settingSpinTable(options)
 end
 
 function SendToDiscord:settingCheckboxTable(options)
-    local separator = options.separator or false
-
     return {
         text = options.setting_title,
-        separator = separator,
+        separator = options.separator,
         checked_func = function()
             return self.settings:isTrue(options.setting)
         end,
@@ -387,14 +372,14 @@ function SendToDiscord:addToMainMenu(menu_items)
                 text = _("Send clipboard to Discord"),
                 callback = function()
                     if not Device:hasClipboard() then
-                        self:warn(_("This device does not have a clipboard"))
+                        self.warn(_("This device does not have a clipboard"))
                         return
                     end
                     
                     local clipboard_text = self:finalText(Device.input.getClipboardText())
 
                     if clipboard_text == nil or clipboard_text == "" then
-                        self:warn(_("Clipboard is empty, did not send anything to Discord"))
+                        self.warn(_("Clipboard is empty, did not send anything to Discord"))
                     else
                         self:send("KOReader", _("Clipboard"), clipboard_text, _("Last copied text"))
                     end
@@ -409,7 +394,8 @@ function SendToDiscord:addToMainMenu(menu_items)
                         dialog_description = _("Enter your webhook url:"),
                         separator = true,
                         trim = true,
-                        verify_func = DiscordWebhook.verifyWebhookUrl
+                        verify_func = DiscordWebhook.verifyWebhookUrl,
+                        verify_add_msg = _("try entering the url again")
                     },
                     {
                         text = _("Text manipulation"),
