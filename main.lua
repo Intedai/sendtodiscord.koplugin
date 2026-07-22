@@ -20,6 +20,19 @@ local InputDialog = require("ui/widget/inputdialog")
 
 local T = ffiUtil.template
 
+local DISCORD_LIMITS = {
+    MAX_TOTAL_CHARS = 6000,
+    MAX_TEXT_CHARS = 4096,
+    MAX_FOOTER_TEXT_CHARS = 2048,
+    MAX_AUTHOR_CHARS = 256,
+    MAX_TITLE_CHARS = 256
+}
+
+local RGB_LIMITS = {
+    MIN = 0,
+    MAX = 255
+}
+
 local SendToDiscord = WidgetContainer:extend{
     name = "sendtodiscord",
     settings = nil,
@@ -73,15 +86,10 @@ function SendToDiscord:send(authors, title, text, footer_text, additional_footer
         return
     end
 
-    local max_total_chars = 6000
-    local max_text_chars = 4096
-    local max_footer_text_chars = 2048
-    local max_author_and_title_chars = 256
-
     local text_len = PluginUtil.utf8Len(text)
 
-    if text_len > max_text_chars then
-        self:warn(T(_("Text's length must be less than or equal to %1"), max_text_chars))
+    if text_len > DISCORD_LIMITS.MAX_TEXT_CHARS then
+        self:warn(T(_("Text's length must be less than or equal to %1"), DISCORD_LIMITS.MAX_TEXT_CHARS))
         return
     end
     
@@ -92,13 +100,13 @@ function SendToDiscord:send(authors, title, text, footer_text, additional_footer
 
     local authors_len, title_len
 
-    authors, authors_len = PluginUtil.truncateString(authors, max_author_and_title_chars)
-    title, title_len = PluginUtil.truncateString(title, max_author_and_title_chars)
+    authors, authors_len = PluginUtil.truncateString(authors, DISCORD_LIMITS.MAX_AUTHOR_CHARS)
+    title, title_len = PluginUtil.truncateString(title, DISCORD_LIMITS.MAX_TITLE_CHARS)
 
-    local remaining_for_footer = max_total_chars - text_len - authors_len - title_len
+    local remaining_for_footer = DISCORD_LIMITS.MAX_TOTAL_CHARS - text_len - authors_len - title_len
 
     -- Works because footer_text is max 4 chars (100%) and the sum of 4 and all max chars is less than 6000 
-    if additional_footer_info ~= nil and (footer_len > max_footer_text_chars or footer_len > remaining_for_footer) then
+    if additional_footer_info ~= nil and (footer_len > DISCORD_LIMITS.MAX_FOOTER_TEXT_CHARS or footer_len > remaining_for_footer) then
         final_footer_text = footer_text
     end
 
@@ -185,7 +193,7 @@ function SendToDiscord:send(authors, title, text, footer_text, additional_footer
     socketutil:reset_timeout()
 end
 
-function  SendToDiscord:getPercentProgress()
+function SendToDiscord:getPercentProgress()
     if self.ui.document.info.has_pages then
         return PluginUtil.myRoundPercent(self.ui.paging:getLastPercent())
     else
@@ -259,12 +267,19 @@ function SendToDiscord:addToHighlightDialog()
     end)
 end
 
-function SendToDiscord:settingInputTable(setting, setting_title, dialog_description, add_separator, trim, verify_func)
+function SendToDiscord:settingInputTable(options)
+    local setting = options.setting
+    local setting_title = options.setting_title
+    local dialog_description = options.dialog_description
+    local separator = options.separator
+    local trim = options.trim or false
+    local verify_func = options.verify_func
+
     return {
         text_func = function()
             return T("%1: %2", setting_title, self.settings:readSetting(setting))
         end,
-        separator = add_separator,
+        separator = separator,
         keep_menu_open = true,
         callback = function(touchmenu_instance)
             self.curr_dialog = InputDialog:new{
@@ -308,14 +323,22 @@ function SendToDiscord:settingInputTable(setting, setting_title, dialog_descript
     }
 end
 
-function SendToDiscord:settingSpinTable(setting, setting_title, widget_title, min, max, default, add_separator)
+function SendToDiscord:settingSpinTable(options)
+    local setting = options.setting
+    local setting_title = options.setting_title
+    local widget_title = options.widget_title
+    local min = options.min
+    local max = options.max
+    local default = options.default
+    local separator = options.separator or false
+
     local SpinWidget = require("ui/widget/spinwidget")
     
     return {
         text_func = function()
             return T("%1: %2", setting_title, self.settings:readSetting(setting))
         end,
-        separator = add_separator,
+        separator = separator,
         keep_menu_open = true,
         callback = function(touchmenu_instance)
             UIManager:show(SpinWidget:new{
@@ -336,9 +359,14 @@ function SendToDiscord:settingSpinTable(setting, setting_title, widget_title, mi
     }
 end
 
-function SendToDiscord:settingCheckboxTable(setting, setting_title)
+function SendToDiscord:settingCheckboxTable(options)
+    local setting = options.setting
+    local setting_title = options.setting_title
+    local separator = options.separator or false
+
     return {
         text = setting_title,
+        separator = separator,
         checked_func = function()
             return self.settings:isTrue(setting)
         end,
@@ -388,14 +416,14 @@ function SendToDiscord:addToMainMenu(menu_items)
             {
                 text = _("Settings"),
                 sub_item_table = {
-                    self:settingInputTable(
-                        "webhook_url",
-                        _("Webhook URL"),
-                        _("Enter your webhook url:"),
-                        true,
-                        true,
-                        PluginUtil.verifyWebhookUrl
-                    ),
+                    self:settingInputTable{
+                        setting = "webhook_url",
+                        setting_title = _("Webhook URL"),
+                        dialog_description = _("Enter your webhook url:"),
+                        separator = true,
+                        trim = true,
+                        verify_func = PluginUtil.verifyWebhookUrl
+                    },
                     {
                         text = _("Text manipulation"),
                         sub_item_table = {
@@ -410,30 +438,51 @@ function SendToDiscord:addToMainMenu(menu_items)
                                     self:radioButtonTable("space_encoding", "+", "+"),
                                 }
                             },
-                            self:settingInputTable(
-                                "prefix_text",
-                                _("Prefix text"),
-                                _("Enter text that will be added before the copied text:"),
-                                false
-                            ),
-                            self:settingInputTable(
-                                "suffix_text",
-                                _("Suffix text"),
-                                _("Enter text that will be added after the copied text:"),
-                                true
-                            ),
-                            self:settingCheckboxTable(
-                                "wrap_code_block",
-                                _("Wrap text in code block (whitespaces stay the exact same, doesn't matter for spaces if encoded)")
-                            )
+                            self:settingInputTable{
+                                setting = "prefix_text",
+                                setting_title = _("Prefix text"),
+                                dialog_description = _("Enter text that will be added before the copied text:"),
+                            },
+                            self:settingInputTable{
+                                setting = "suffix_text",
+                                setting_title = _("Suffix text"),
+                                dialog_description = _("Enter text that will be added after the copied text:"),
+                                separator = true
+                            },
+                            self:settingCheckboxTable{
+                                setting = "wrap_code_block",
+                                setting_title = _("Wrap text in code block (whitespaces stay the exact same, doesn't matter for spaces if encoded)")
+                            }
                         }
                     },
                     {
                         text = _("Embed color"),
                         sub_item_table = {
-                            self:settingSpinTable("red", "R", _("Red value"), 0, 255, self.default_rgb[1], false),
-                            self:settingSpinTable("green", "G", _("Green value"), 0, 255, self.default_rgb[2], false),
-                            self:settingSpinTable("blue", "B", _("Blue value"), 0, 255, self.default_rgb[3], true),
+                            self:settingSpinTable{
+                                setting = "red",
+                                setting_title = "R",
+                                widget_title = _("Red value"),
+                                min = RGB_LIMITS.MIN,
+                                max = RGB_LIMITS.MAX,
+                                default = self.default_rgb[1]
+                            },
+                            self:settingSpinTable{
+                                setting = "green",
+                                setting_title = "G",
+                                widget_title = _("Green value"),
+                                min = RGB_LIMITS.MIN,
+                                max = RGB_LIMITS.MAX,
+                                default = self.default_rgb[2]
+                            },
+                            self:settingSpinTable{
+                                setting = "blue",
+                                setting_title = "B",
+                                widget_title = _("Blue value"),
+                                min = RGB_LIMITS.MIN,
+                                max = RGB_LIMITS.MAX,
+                                default = self.default_rgb[3],
+                                separator = true
+                            },
                             {
                                 text = _("Reset to default"),
                                 keep_menu_open = true,
