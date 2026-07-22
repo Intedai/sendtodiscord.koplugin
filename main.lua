@@ -367,6 +367,7 @@ end
 function SendToDiscord:addToMainMenu(menu_items)
     menu_items.sendtodiscord = {
         text = _("SendToDiscord"),
+        sorting_hint = "more_tools",
         sub_item_table = {
             {
                 text = _("Send clipboard to Discord"),
