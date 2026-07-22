@@ -34,7 +34,7 @@ function DiscordWebhook.verifyWebhookUrl(url)
 end
 
 --[[--
-Verifies that a url is a Discord webhook url
+Builds the request body of the request sent to the webhook
 
 @tparam table options (options are authors, title, color, text, footer_text)
 @treturn string json of the request body
