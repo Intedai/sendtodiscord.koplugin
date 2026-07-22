@@ -52,17 +52,16 @@ function SendToDiscord:init()
     self.settings:readSetting("blue", self.default_rgb[3])
 end
 
-function SendToDiscord:warn(text)
+function SendToDiscord:warn(text, timeout)
     logger.warn(text)
 
     local warning_msg = InfoMessage:new{
         icon = "notice-warning",
         text = text,
+        timeout = timeout
     }
 
     UIManager:show(warning_msg)
-
-    return warning_msg
 end
 
 function SendToDiscord:send(authors, title, text, footer_text, additional_footer_info)
@@ -129,7 +128,6 @@ function SendToDiscord:send(authors, title, text, footer_text, additional_footer
 
     local function webhookReq()        
         
-        local try_again = false
         local response = {}
         
         local request = {
@@ -153,8 +151,6 @@ function SendToDiscord:send(authors, title, text, footer_text, additional_footer
             logger.info(_("Sent highlighted text to Discord successfully"))
         elseif code ~= 429 then
             self:warn(T(_("Failed, status code: %1"), status or code or "network unreachable"))
-        else
-            try_again = true
         end
 
         return code, status, response
@@ -167,6 +163,7 @@ function SendToDiscord:send(authors, title, text, footer_text, additional_footer
        code == socketutil.SINK_TIMEOUT_CODE
     then
         self:warn(T(_("Request interrupted: %1"), status or code))
+        return
     end
 
     if code and code == 429 then
@@ -174,16 +171,18 @@ function SendToDiscord:send(authors, title, text, footer_text, additional_footer
         if ok and result and result.retry_after and type(result.retry_after) == "number" then
             local retry_after = result.retry_after
 
-            local warning_msg = self:warn(T(_("You are being rate limited, trying again in %1 seconds"), retry_after))
-            -- Make the warning show before sleep
-            UIManager:forceRePaint()
-            ffiUtil.sleep(retry_after)
-            UIManager:close(warning_msg)
+            self:warn(T(
+                _("You are being rate limited, trying again in %1 seconds\nYou can wait until this message closes or continue reading"), 
+                retry_after
+            ))
 
-            local try_again = webhookReq()
-            if try_again then
-                self:warn(T(_("Failed to send after waiting %1 seconds and sending a request again"), retry_after))
-            end
+            UIManager:scheduleIn(retry_after, function()
+                local code, _, _ = webhookReq()
+                if code == 429 then
+                    self:warn(T(_("Failed to send after waiting %1 seconds, try sending again manually later"), retry_after))
+                end
+            end)
+
         else
             self:warn(_("You are being rate limited, couldn't fetch the wait time until you can retry sending the request"))
         end
