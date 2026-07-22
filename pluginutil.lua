@@ -50,8 +50,8 @@ end
 --[[--
 Return the length of a UTF-8 string 
 
-@tparam str
-@treturn length
+@tparam string str
+@treturn int length
 ]]
 function PluginUtil.utf8Len(str)
     if not str then
@@ -69,9 +69,10 @@ end
 --[[--
 Truncates a string to a given length with a maximum of 3 dots added
 
-@tparam str
-@tparam len
-@treturn truncated string and new length
+@tparam string str
+@tparam int len
+@treturn string truncated string
+@treturn int new length
 ]]
 function PluginUtil.truncateString(str, len)
     if not str then
@@ -87,23 +88,6 @@ function PluginUtil.truncateString(str, len)
     end
 
     return str, #chars
-end
-
-function PluginUtil.verifyWebhookUrl(url)
-    local socket_url = require("socket.url")
-
-    local parsed = socket_url.parse(url)
-
-    if url == "" then return false end
-    
-    if parsed.scheme == "https"
-       and parsed.host == "discord.com"
-       and util.stringStartsWith(parsed.path, "/api/webhooks/")
-       then
-        return true
-    end
-
-    return false
 end
 
 return PluginUtil

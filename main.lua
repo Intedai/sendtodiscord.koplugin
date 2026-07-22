@@ -8,9 +8,9 @@ local Device = require("device")
 local WidgetContainer = require("ui/widget/container/widgetcontainer")
 local util = require("util")
 local PluginUtil = require("pluginutil")
+local DiscordWebhook = require("discordwebhook")
 local _ = require("gettext")
 local logger = require("logger")
-local JSON = require("json")
 local UIManager = require("ui/uimanager")
 local InfoMessage = require("ui/widget/infomessage")
 local LuaSettings = require("luasettings")
@@ -19,14 +19,6 @@ local ffiUtil = require("ffi/util")
 local InputDialog = require("ui/widget/inputdialog")
 
 local T = ffiUtil.template
-
-local DISCORD_LIMITS = {
-    MAX_TOTAL_CHARS = 6000,
-    MAX_TEXT_CHARS = 4096,
-    MAX_FOOTER_TEXT_CHARS = 2048,
-    MAX_AUTHOR_CHARS = 256,
-    MAX_TITLE_CHARS = 256
-}
 
 local RGB_LIMITS = {
     MIN = 0,
@@ -76,7 +68,7 @@ end
 function SendToDiscord:send(authors, title, text, footer_text, additional_footer_info)
     local url = self.settings:readSetting("webhook_url")
 
-    if not PluginUtil.verifyWebhookUrl(url) then
+    if not DiscordWebhook.verifyWebhookUrl(url) then
         if url == "" then
             self:warn(_("Empty Discord webhook url, change it in the settings"))
         else
@@ -88,8 +80,8 @@ function SendToDiscord:send(authors, title, text, footer_text, additional_footer
 
     local text_len = PluginUtil.utf8Len(text)
 
-    if text_len > DISCORD_LIMITS.MAX_TEXT_CHARS then
-        self:warn(T(_("Text's length must be less than or equal to %1"), DISCORD_LIMITS.MAX_TEXT_CHARS))
+    if text_len > DiscordWebhook.LIMITS.MAX_TEXT_CHARS then
+        self:warn(T(_("Text's length must be less than or equal to %1"), DiscordWebhook.LIMITS.MAX_TEXT_CHARS))
         return
     end
     
@@ -100,50 +92,47 @@ function SendToDiscord:send(authors, title, text, footer_text, additional_footer
 
     local authors_len, title_len
 
-    authors, authors_len = PluginUtil.truncateString(authors, DISCORD_LIMITS.MAX_AUTHOR_CHARS)
-    title, title_len = PluginUtil.truncateString(title, DISCORD_LIMITS.MAX_TITLE_CHARS)
+    authors, authors_len = PluginUtil.truncateString(authors, DiscordWebhook.LIMITS.MAX_AUTHOR_CHARS)
+    title, title_len = PluginUtil.truncateString(title, DiscordWebhook.LIMITS.MAX_TITLE_CHARS)
 
-    local remaining_for_footer = DISCORD_LIMITS.MAX_TOTAL_CHARS - text_len - authors_len - title_len
+    local remaining_for_footer = DiscordWebhook.LIMITS.MAX_TOTAL_CHARS - text_len - authors_len - title_len
 
     -- Works because footer_text is max 4 chars (100%) and the sum of 4 and all max chars is less than 6000 
-    if additional_footer_info ~= nil and (footer_len > DISCORD_LIMITS.MAX_FOOTER_TEXT_CHARS or footer_len > remaining_for_footer) then
+    if additional_footer_info ~= nil 
+       and (footer_len > DiscordWebhook.LIMITS.MAX_FOOTER_TEXT_CHARS or footer_len > remaining_for_footer) 
+    then
         final_footer_text = footer_text
     end
 
     local http = require("socket.http")
     local ltn12 = require("ltn12")
     local socketutil = require("socketutil")
+    local socket = require("socket")
+    local JSON = require("json")
 
-    local data = JSON.encode({
-        embeds = {
-            {
-                author = {
-                    name = authors
-                },
-                title = title,
-                color = PluginUtil.rgbToInt(
-                    self.settings:readSetting("red"),
-                    self.settings:readSetting("green"),
-                    self.settings:readSetting("blue")
-                ),
-                description = text,
-                footer = {
-                    text = final_footer_text
-                }
-            }
-        }
-    })
+    local color = PluginUtil.rgbToInt(
+        self.settings:readSetting("red"),
+        self.settings:readSetting("green"),
+        self.settings:readSetting("blue")
+    )
+
+    local data = DiscordWebhook.build_request_body{
+        authors = authors,
+        title = title,
+        color = color,
+        text = text,
+        footer_text = final_footer_text
+    }
 
     local timeout = 10
     local maxtime = 30
 
-    socketutil:set_timeout(timeout, maxtime)
     local function webhookReq()        
-
+        
         local try_again = false
         local response = {}
-
-        local result, code, headers, status = http.request {
+        
+        local request = {
             method = "POST",
             url = url,
             headers = {
@@ -153,24 +142,34 @@ function SendToDiscord:send(authors, title, text, footer_text, additional_footer
             source = ltn12.source.string(data),
             sink = socketutil.table_sink(response)
         }
+        
+        socketutil:set_timeout(timeout, maxtime)
+        local code, headers, status = socket.skip(1, http.request(request))
+        socketutil:reset_timeout()
+
         local response = table.concat(response)
         
-        if result ~= 1 then
-            self:warn(T(_("Failed to send request: %1"), code))
-        elseif code == 204 or code == 200 then
+        if code == 204 or code == 200 then
             logger.info(_("Sent highlighted text to Discord successfully"))
         elseif code ~= 429 then
-            self:warn(T(_("Failed, HTTP status code: %1"), code))
+            self:warn(T(_("Failed, status code: %1"), status or code or "network unreachable"))
         else
             try_again = true
         end
 
-        return try_again, response
+        return code, status, response
     end
 
-    local try_again, response = webhookReq()
+    local code, status, response = webhookReq()
 
-    if try_again then
+    if code == socketutil.TIMEOUT_CODE or
+       code == socketutil.SSL_HANDSHAKE_CODE or
+       code == socketutil.SINK_TIMEOUT_CODE
+    then
+        self:warn(T(_("Request interrupted: %1"), status or code))
+    end
+
+    if code and code == 429 then
         local ok, result = pcall(JSON.decode, response)
         if ok and result and result.retry_after and type(result.retry_after) == "number" then
             local retry_after = result.retry_after
@@ -190,7 +189,6 @@ function SendToDiscord:send(authors, title, text, footer_text, additional_footer
         end
     end
 
-    socketutil:reset_timeout()
 end
 
 function SendToDiscord:getPercentProgress()
@@ -268,24 +266,21 @@ function SendToDiscord:addToHighlightDialog()
 end
 
 function SendToDiscord:settingInputTable(options)
-    local setting = options.setting
-    local setting_title = options.setting_title
-    local dialog_description = options.dialog_description
-    local separator = options.separator
-    local trim = options.trim or false
-    local verify_func = options.verify_func
+    local setting = self.settings:readSetting(options.setting)
+    -- TODO: check in all funcs if I can just remove this line, probably can
+    local separator = options.separator or false
 
     return {
         text_func = function()
-            return T("%1: %2", setting_title, self.settings:readSetting(setting))
+            return T("%1: %2", options.setting_title, setting)
         end,
         separator = separator,
         keep_menu_open = true,
         callback = function(touchmenu_instance)
             self.curr_dialog = InputDialog:new{
-                title = setting_title,
-                description = dialog_description,
-                input = self.settings:readSetting(setting),
+                title = options.setting_title,
+                description = options.dialog_description,
+                input = setting,
                 buttons = {{
                     {
                         text = _("Cancel"),
@@ -302,8 +297,8 @@ function SendToDiscord:settingInputTable(options)
                                 input_text = util.trim(input_text)
                             end
 
-                            if not verify_func or verify_func(input_text) then                                
-                                self.settings:saveSetting(setting, input_text)
+                            if not options.verify_func or options.verify_func(input_text) then                                
+                                self.settings:saveSetting(options.setting, input_text)
                                 self.settings:flush()
                                 UIManager:close(self.curr_dialog)
                                 if touchmenu_instance then
@@ -324,31 +319,26 @@ function SendToDiscord:settingInputTable(options)
 end
 
 function SendToDiscord:settingSpinTable(options)
-    local setting = options.setting
-    local setting_title = options.setting_title
-    local widget_title = options.widget_title
-    local min = options.min
-    local max = options.max
-    local default = options.default
+    local setting = self.settings:readSetting(options.setting)
     local separator = options.separator or false
 
     local SpinWidget = require("ui/widget/spinwidget")
     
     return {
         text_func = function()
-            return T("%1: %2", setting_title, self.settings:readSetting(setting))
+            return T("%1: %2", options.setting_title, setting)
         end,
         separator = separator,
         keep_menu_open = true,
         callback = function(touchmenu_instance)
             UIManager:show(SpinWidget:new{
-                title_text = widget_title,
-                value = self.settings:readSetting(setting),
-                value_min = min,
-                value_max = max,
-                default_value = default,
+                title_text = options.widget_title,
+                value = setting,
+                value_min = options.min,
+                value_max = options.max,
+                default_value = options.default,
                 callback = function(spin)
-                    self.settings:saveSetting(setting, spin.value)
+                    self.settings:saveSetting(options.setting, spin.value)
                     self.settings:flush()
                     if touchmenu_instance then
                         touchmenu_instance:updateItems()
@@ -360,18 +350,16 @@ function SendToDiscord:settingSpinTable(options)
 end
 
 function SendToDiscord:settingCheckboxTable(options)
-    local setting = options.setting
-    local setting_title = options.setting_title
     local separator = options.separator or false
 
     return {
-        text = setting_title,
+        text = options.setting_title,
         separator = separator,
         checked_func = function()
-            return self.settings:isTrue(setting)
+            return self.settings:isTrue(options.setting)
         end,
         callback = function()
-            self.settings:toggle(setting)
+            self.settings:toggle(options.setting)
             self.settings:flush()
         end
     }
@@ -422,7 +410,7 @@ function SendToDiscord:addToMainMenu(menu_items)
                         dialog_description = _("Enter your webhook url:"),
                         separator = true,
                         trim = true,
-                        verify_func = PluginUtil.verifyWebhookUrl
+                        verify_func = DiscordWebhook.verifyWebhookUrl
                     },
                     {
                         text = _("Text manipulation"),
