@@ -53,7 +53,7 @@ And when opening the link we get this:
 
 <img width="847" height="124" alt="image" src="https://github.com/user-attachments/assets/d75a0458-986d-4136-a988-674db4433482" />
 
-### Preserve whitespaces by wrapping the text in a code:
+### Preserve whitespaces by wrapping the text in a code block:
 Use this instead of manually wrapping the text with prefix and suffix because it executes different code and whitespaces won't be preserved otherwise!  
 
 <img width="1431" height="374" alt="codeblock" src="https://github.com/user-attachments/assets/c7a68380-99d0-4455-b897-ed420342450d" />
