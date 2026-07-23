@@ -5,7 +5,8 @@ SendToDiscord lets you send highlighted text and text from your clipboard to Dis
 
 
 ## Installation
-clone the repo and move it to the `koreader/plugins` dir
+1. Download `sendtodiscord.koplugin.zip` from the latest release in the [Releases](https://github.com/Intedai/sendtodiscord.koplugin/releases) page
+2. Unzip the archive and move `sendtodiscord.koplugin` to the plugins directory (`koreader/plugins`)
 
 ## Setup
 1. [Create a webhook](https://support.discord.com/hc/en-us/articles/228383668-Intro-to-Webhooks)
